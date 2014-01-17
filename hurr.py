@@ -4,15 +4,22 @@ from json import loads, dumps
 from email.utils import parsedate as parse_last_modified
 from operator import attrgetter
 from os import makedirs
+from os.path import exists
 from base64 import b64decode
 from binascii import hexlify
 from hashlib import md5
+import errno
 
 
+# TODO: resume features -- double check if image file doesn't exist before downloading
 class ThreadWatcher(object):
     def __init__(self, file_root, loop, thread_id):
         self.file_root = '%s/%s' % (file_root, thread_id)
-        makedirs(self.file_root)
+        try:
+            makedirs(self.file_root)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise e
         self.loop = loop
         self.client = httpclient.AsyncHTTPClient()
         self.working = True
@@ -36,6 +43,7 @@ class ThreadWatcher(object):
                     self.downloaded_pictures.add(filename)
                 else:
                     print 'Digests dont match for image %s' % filename
+
         return write_image
 
     def parse_thread(self, thread):
@@ -46,8 +54,9 @@ class ThreadWatcher(object):
                     print 'sucking down image %s' % filename
                     checksum = hexlify(b64decode(p['md5']))
                     remote_name = self.pic_url % filename
-                    self.client.fetch(remote_name,
-                                      self.make_image_handler('%s/%s' % (self.file_root, filename), filename, checksum))
+                    local_filename = '%s/%s' % (self.file_root, filename)
+                    if not exists(local_filename):
+                        self.client.fetch(remote_name, self.make_image_handler(local_filename, filename, checksum))
 
     def handle(self, response):
         if response.code == 200:
@@ -80,8 +89,9 @@ class ChanWatcher(object):
     def __init__(self, file_root, loop):
         try:
             makedirs(file_root)
-        except OSError:
-            pass
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise e
         self.file_root = file_root
         self.loop = loop
         self.client = httpclient.AsyncHTTPClient()
@@ -118,7 +128,7 @@ class ChanWatcher(object):
 
 
 def main():
-    watcher = ChanWatcher('/tmp/4chan', ioloop.IOLoop.instance())
+    watcher = ChanWatcher('/home/thechosenone/4chan', ioloop.IOLoop.instance())
     watcher.start()
 
 
