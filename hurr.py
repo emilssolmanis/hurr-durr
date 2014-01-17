@@ -1,19 +1,20 @@
-from tornado import ioloop, httpclient
 from datetime import timedelta, datetime
 from json import loads, dumps
 from email.utils import parsedate as parse_last_modified
 from operator import attrgetter
-from os import makedirs
-from os.path import exists
 from base64 import b64decode
 from binascii import hexlify
 from hashlib import md5
 import errno
+from argparse import ArgumentParser
+
+from tornado import ioloop, httpclient
+from os import makedirs
+from os.path import exists
 
 
-# TODO: resume features -- double check if image file doesn't exist before downloading
 class ThreadWatcher(object):
-    def __init__(self, file_root, loop, thread_id):
+    def __init__(self, file_root, board, loop, thread_id, pull_images):
         self.file_root = '%s/%s' % (file_root, thread_id)
         try:
             makedirs(self.file_root)
@@ -21,13 +22,14 @@ class ThreadWatcher(object):
             if e.errno != errno.EEXIST:
                 raise e
         self.loop = loop
+        self.pull_images = pull_images
         self.client = httpclient.AsyncHTTPClient()
         self.working = True
         self.thread_id = thread_id
-        self.url = 'http://a.4cdn.org/b/res/%d.json' % thread_id
+        self.url = 'http://a.4cdn.org/%s/res/%d.json' % (board, thread_id)
         self.downloaded_pictures = set()
         self.last_modified = datetime.now()
-        self.pic_url = 'http://i.4cdn.org/b/src/%s'
+        self.pic_url = 'http://i.4cdn.org/%s/src/%%s' % board
         self.previous_thread = {'posts': []}
 
     def make_image_handler(self, local_filename, filename, checksum):
@@ -47,16 +49,17 @@ class ThreadWatcher(object):
         return write_image
 
     def parse_thread(self, thread):
-        for p in thread['posts']:
-            if 'tim' in p:
-                filename = str(p['tim']) + p['ext']
-                if filename not in self.downloaded_pictures:
-                    print 'sucking down image %s' % filename
-                    checksum = hexlify(b64decode(p['md5']))
-                    remote_name = self.pic_url % filename
-                    local_filename = '%s/%s' % (self.file_root, filename)
-                    if not exists(local_filename):
-                        self.client.fetch(remote_name, self.make_image_handler(local_filename, filename, checksum))
+        if self.pull_images:
+            for p in thread['posts']:
+                if 'tim' in p:
+                    filename = str(p['tim']) + p['ext']
+                    if filename not in self.downloaded_pictures:
+                        print 'sucking down image %s' % filename
+                        checksum = hexlify(b64decode(p['md5']))
+                        remote_name = self.pic_url % filename
+                        local_filename = '%s/%s' % (self.file_root, filename)
+                        if not exists(local_filename):
+                            self.client.fetch(remote_name, self.make_image_handler(local_filename, filename, checksum))
 
     def handle(self, response):
         if response.code == 200:
@@ -86,13 +89,16 @@ class ThreadWatcher(object):
 
 
 class ChanWatcher(object):
-    def __init__(self, file_root, loop):
+    def __init__(self, file_root, board, loop, images):
         try:
             makedirs(file_root)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise e
         self.file_root = file_root
+        self.images = images
+        self.board = board
+        self.thread_list_url = 'http://a.4cdn.org/%s/threads.json' % self.board
         self.loop = loop
         self.client = httpclient.AsyncHTTPClient()
         self.previous_threads = set()
@@ -113,14 +119,14 @@ class ChanWatcher(object):
         new_threads = curr_threads - self.previous_threads
         self.previous_threads = curr_threads
         for t in new_threads:
-            watcher = ThreadWatcher(self.file_root, self.loop, t)
+            watcher = ThreadWatcher(self.file_root, self.board, self.loop, t, self.images)
             self.watchers.append(watcher)
             watcher.watch()
 
         self.loop.add_timeout(timedelta(seconds=60), self.watch_threads)
 
     def watch_threads(self):
-        self.client.fetch('http://a.4cdn.org/b/threads.json', self.handle_threads)
+        self.client.fetch(self.thread_list_url, self.handle_threads)
 
     def start(self):
         self.watch_threads()
@@ -128,7 +134,15 @@ class ChanWatcher(object):
 
 
 def main():
-    watcher = ChanWatcher('/home/thechosenone/4chan', ioloop.IOLoop.instance())
+    parser = ArgumentParser(description='Scrape some 4chan.')
+    parser.add_argument('-d', '--directory', type=str, required=True,
+                        help='the file root to output the scraped content to')
+    parser.add_argument('-b', '--board', type=str, required=True, help='the board to scrape')
+    parser.add_argument('-i', '--images', action='store_true', help='if given, images will be downloaded as well')
+    args = parser.parse_args()
+    if args.directory.endswith('/'):
+        args.directory = args.directory[:-1]
+    watcher = ChanWatcher(args.directory, args.board, ioloop.IOLoop.instance(), args.images)
     watcher.start()
 
 
