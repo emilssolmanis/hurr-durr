@@ -142,15 +142,16 @@ class ThreadWatcher(object):
 
     def _parse_thread(self, thread):
         posts = thread['posts']
-        for p in posts:
+        for p in filter(lambda post: post['no'] not in self.posts_handled, posts):
             self.handler.post(self.thread_id, p)
+            self.posts_handled.add(p['no'])
             if self.pull_images and 'tim' in p:
                 filename = '%s%s' % (p['tim'], p['ext'])
                 if filename not in self.downloaded_pictures:
-                    logger.info('Pulling image %s', filename)
                     checksum = hexlify(b64decode(p['md5']))
                     remote_name = self.pic_url % filename
                     if not self.handler.download_img(self.thread_id, filename):
+                        logger.info('Pulling image %s', filename)
                         self.client.fetch(remote_name, self._make_image_handler(filename, checksum))
 
     def _handle(self, response):
@@ -161,9 +162,9 @@ class ThreadWatcher(object):
 
             try:
                 thread = loads(response.body)
-                self._parse_thread(thread)
                 curr_len = len(thread['posts'])
                 prev_len = len(self.posts_handled)
+                self._parse_thread(thread)
                 logger.info('Thread %d has %d posts, had %d => %d new', self.thread_id, curr_len, prev_len,
                             curr_len - prev_len)
             except ValueError:
