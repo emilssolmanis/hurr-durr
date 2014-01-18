@@ -15,10 +15,12 @@ available via the `-h` flag.
 As for the API part, the main entry point is `hurr_durr.ChanWatcher`. You have to implement a handler class and then
 do something along the lines of
 
-    from hurr_durr import FileHandler, ChanWatcher
+```python
+from hurr_durr import FileHandler, ChanWatcher
 
-    watcher = ChanWatcher(FileHandler('/tmp/4chan/b'), 'b', images=True)
-    watcher.start()
+watcher = ChanWatcher(FileHandler('/tmp/4chan/b'), 'b', images=True)
+watcher.start()
+```
 
 The only handler currently bundled is a `FileHandler` which saves content to disk. To implement your own handler,
 you need to create a class containing 4 methods:
@@ -28,6 +30,12 @@ you need to create a class containing 4 methods:
  * `img(thread_id, filename, data)` -- gets called with downloaded image data, only relevant if images are downloaded
  * `download_img(thread_id, filename)` -- gets called to check if a particular image should be downloaded, only relevant
     if images are downloaded
+
+# Installing
+
+It's in PyPI, just use pip
+
+    pip install hurr-durr
 
 # Why?
 
