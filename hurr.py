@@ -1,7 +1,9 @@
 from argparse import ArgumentParser
 import logging
 
-from hurr_durr import ChanWatcher
+from os import sep
+
+from hurr_durr import ChanWatcher, FileHandler
 
 
 def main():
@@ -16,9 +18,10 @@ def main():
     if args.verbose:
         logging.basicConfig(format='%(asctime)-15s %(levelname)s %(message)s', level=logging.INFO)
 
-    if args.directory.endswith('/'):
-        args.directory = args.directory[:-1]
-    watcher = ChanWatcher(args.directory, args.board, args.images)
+    if args.directory.endswith(sep):
+        args.directory = args.directory[:len(sep)]
+
+    watcher = ChanWatcher(FileHandler(args.directory), args.board, args.images)
     watcher.start()
 
 
