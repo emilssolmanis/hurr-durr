@@ -10,6 +10,8 @@ setup(
     license='Apache License (2.0)',
     keywords='4chan stream async',
     url='https://github.com/emilssolmanis/hurr-durr',
+    download_url='https://github.com/emilssolmanis/hurr-durr/archive/0.0.1.tar.gz',
+    long_description=open('README.md').read(),
 
     packages=find_packages(),
     scripts=['hurr-durr'],
