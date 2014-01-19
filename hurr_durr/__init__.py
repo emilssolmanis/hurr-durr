@@ -212,21 +212,26 @@ class ChanWatcher(object):
     def _handle_threads(self, response):
         self.watchers = filter(attrgetter('working'), self.watchers)
 
-        curr_threads = set()
-        for page_obj in loads(response.body):
-            # page_nr = page_obj['page']
-            threads = page_obj['threads']
-            for thread_obj in threads:
-                thread_nr = thread_obj['no']
-                curr_threads.add(thread_nr)
-                # last_modified = thread_obj['last_modified']
+        if response.code == 200:
+            try:
+                pages = loads(response.body)
+                curr_threads = set()
+                for page_obj in pages:
+                    # page_nr = page_obj['page']
+                    threads = page_obj['threads']
+                    for thread_obj in threads:
+                        thread_nr = thread_obj['no']
+                        curr_threads.add(thread_nr)
+                        # last_modified = thread_obj['last_modified']
 
-        new_threads = curr_threads - self.previous_threads
-        self.previous_threads = curr_threads
-        for t in new_threads:
-            watcher = ThreadWatcher(self.handler, self.board, self.loop, t, self.images)
-            self.watchers.append(watcher)
-            watcher.watch()
+                new_threads = curr_threads - self.previous_threads
+                self.previous_threads = curr_threads
+                for t in new_threads:
+                    watcher = ThreadWatcher(self.handler, self.board, self.loop, t, self.images)
+                    self.watchers.append(watcher)
+                    watcher.watch()
+            except ValueError:
+                logger.info('Failed to parse thread list JSON response')
 
         self.loop.add_timeout(timedelta(seconds=self.sampling_interval), self._watch_threads)
 
