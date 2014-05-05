@@ -1,4 +1,5 @@
 from setuptools import setup, find_packages
+import hurr_durr
 import os
 
 setup_pth = os.path.dirname(__file__)
@@ -6,7 +7,7 @@ readme_pth = os.path.join(setup_pth, 'README.md')
 
 setup(
     name='hurr-durr',
-    version='0.0.5',
+    version=hurr_durr.__version__,
     description='Streaming async interface to 4chan boards',
     author='Emils Solmanis',
     author_email='emils.solmanis@gmail.com',
