@@ -33,14 +33,14 @@ class FileHandler(object):
         if file_root.endswith(sep):
             file_root = file_root[:len(sep)]
 
-        self.file_root = file_root
+        self._file_root = file_root
 
         try:
-            makedirs(self.file_root)
+            makedirs(self._file_root)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise e
-        self.active_threads = dict()
+        self._active_threads = dict()
 
     def post(self, thread_id, new_post):
         """Handle a new post.
@@ -53,15 +53,15 @@ class FileHandler(object):
             time : a UNIX timestamp of post's time
             com : the text, contains escaped HTML
         """
-        if thread_id not in self.active_threads:
-            thread_file_root = '%s%s%s' % (self.file_root, sep, thread_id)
+        if thread_id not in self._active_threads:
+            thread_file_root = '%s%s%s' % (self._file_root, sep, thread_id)
             try:
                 makedirs(thread_file_root)
             except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise e
-            self.active_threads[thread_id] = []
-        self.active_threads[thread_id].append(new_post)
+            self._active_threads[thread_id] = []
+        self._active_threads[thread_id].append(new_post)
 
     def pruned(self, thread_id):
         """Handles thread pruning, writes content to JSON on disk.
@@ -70,10 +70,10 @@ class FileHandler(object):
         """
         # this is necessary for the edge-case when the thread was pruned between seeing it in the main list and fetching
         # it's content json
-        if thread_id in self.active_threads:
-            with open('%s%s%s%s%s.json' % (self.file_root, sep, thread_id, sep, thread_id), 'w') as f:
-                f.write(dumps({'posts': self.active_threads[thread_id]}))
-            del self.active_threads[thread_id]
+        if thread_id in self._active_threads:
+            with open('%s%s%s%s%s.json' % (self._file_root, sep, thread_id, sep, thread_id), 'w') as f:
+                f.write(dumps({'posts': self._active_threads[thread_id]}))
+            del self._active_threads[thread_id]
 
     def img(self, thread_id, filename, data):
         """Handles image downloads, writes content to disk in thread_id directory.
@@ -82,7 +82,7 @@ class FileHandler(object):
         filename -- the image's filename with extensions
         data -- bytes, image content
         """
-        with open('%s%s%s%s%s' % (self.file_root, sep, thread_id, sep, filename), 'w') as f:
+        with open('%s%s%s%s%s' % (self._file_root, sep, thread_id, sep, filename), 'w') as f:
             f.write(data)
 
     def download_img(self, thread_id, filename):
@@ -93,7 +93,7 @@ class FileHandler(object):
         thread_id -- the thread ID for thread containing the image
         filename -- the image's file name
         """
-        return exists('%s%s%s%s%s' % (self.file_root, sep, thread_id, sep, filename))
+        return exists('%s%s%s%s%s' % (self._file_root, sep, thread_id, sep, filename))
 
 
 class ThreadWatcher(object):
@@ -113,18 +113,18 @@ class ThreadWatcher(object):
         sampling_interval -- seconds between each poll. Defaults to 60. Shorter intervals result in more precise
             samples, but consume bandwidth and m00t has 4chan running on fumes as is. Do not abuse.
         """
-        self.loop = loop
-        self.handler = handler
-        self.sampling_interval = sampling_interval
-        self.pull_images = pull_images
-        self.client = httpclient.AsyncHTTPClient()
-        self.working = True
-        self.thread_id = thread_id
-        self.url = 'http://a.4cdn.org/%s/res/%d.json' % (board, thread_id)
-        self.downloaded_pictures = set()
-        self.last_modified = datetime.now()
-        self.pic_url = 'http://i.4cdn.org/%s/src/%%s' % board
-        self.posts_handled = set()
+        self._loop = loop
+        self._handler = handler
+        self._sampling_interval = sampling_interval
+        self._pull_images = pull_images
+        self._client = httpclient.AsyncHTTPClient()
+        self._working = True
+        self._thread_id = thread_id
+        self._url = 'http://a.4cdn.org/%s/res/%d.json' % (board, thread_id)
+        self._downloaded_pictures = set()
+        self._last_modified = datetime.now()
+        self._pic_url = 'http://i.4cdn.org/%s/src/%%s' % board
+        self._posts_handled = set()
 
     def _make_image_handler(self, filename, checksum):
         def check_image(response):
@@ -134,7 +134,7 @@ class ThreadWatcher(object):
                 m = md5()
                 m.update(data)
                 if m.hexdigest() == checksum:
-                    self.handler.img(self.thread_id, filename, data)
+                    self._handler.img(self._thread_id, filename, data)
                 else:
                     logger.info('Digests don\'t match for image %s', filename)
 
@@ -142,42 +142,42 @@ class ThreadWatcher(object):
 
     def _parse_thread(self, thread):
         posts = thread['posts']
-        for p in filter(lambda post: post['no'] not in self.posts_handled, posts):
-            self.handler.post(self.thread_id, p)
-            self.posts_handled.add(p['no'])
-            if self.pull_images and 'tim' in p:
+        for p in filter(lambda post: post['no'] not in self._posts_handled, posts):
+            self._handler.post(self._thread_id, p)
+            self._posts_handled.add(p['no'])
+            if self._pull_images and 'tim' in p:
                 filename = '%s%s' % (p['tim'], p['ext'])
-                if filename not in self.downloaded_pictures:
+                if filename not in self._downloaded_pictures:
                     checksum = hexlify(b64decode(p['md5']))
-                    remote_name = self.pic_url % filename
-                    if not self.handler.download_img(self.thread_id, filename):
+                    remote_name = self._pic_url % filename
+                    if not self._handler.download_img(self._thread_id, filename):
                         logger.info('Pulling image %s', filename)
-                        self.client.fetch(remote_name, self._make_image_handler(filename, checksum))
+                        self._client.fetch(remote_name, self._make_image_handler(filename, checksum))
 
     def _handle(self, response):
         if response.code == 200:
             last_mod_str = response.headers['Last-Modified']
             last_mod = datetime(*parse_last_modified(last_mod_str)[:6])
-            self.last_modified = last_mod
+            self._last_modified = last_mod
 
             try:
                 thread = loads(response.body)
                 curr_len = len(thread['posts'])
-                prev_len = len(self.posts_handled)
+                prev_len = len(self._posts_handled)
                 self._parse_thread(thread)
-                logger.info('Thread %d has %d posts, had %d => %d new', self.thread_id, curr_len, prev_len,
+                logger.info('Thread %d has %d posts, had %d => %d new', self._thread_id, curr_len, prev_len,
                             curr_len - prev_len)
             except ValueError:
                 logger.info('ValueError: thread unmodified')
         if not response.code == 404:
-            self.loop.add_timeout(timedelta(seconds=self.sampling_interval), self.watch)
+            self._loop.add_timeout(timedelta(seconds=self._sampling_interval), self.watch)
         else:
-            self.handler.pruned(self.thread_id)
-            self.working = False
+            self._handler.pruned(self._thread_id)
+            self._working = False
 
     def watch(self):
         """Starts watching the thread this watcher is bound to."""
-        self.client.fetch(httpclient.HTTPRequest(self.url, if_modified_since=self.last_modified), self._handle)
+        self._client.fetch(httpclient.HTTPRequest(self._url, if_modified_since=self._last_modified), self._handle)
 
 
 class ChanWatcher(object):
@@ -199,18 +199,18 @@ class ChanWatcher(object):
         sampling_interval -- seconds between each poll. Defaults to 60. Shorter intervals result in more precise
             samples, but consume bandwidth and m00t has 4chan running on fumes as is. Do not abuse.
         """
-        self.handler = handler
-        self.sampling_interval = sampling_interval
-        self.images = images
-        self.board = board
-        self.thread_list_url = 'http://a.4cdn.org/%s/threads.json' % self.board
-        self.loop = ioloop.IOLoop.instance()
-        self.client = httpclient.AsyncHTTPClient()
-        self.previous_threads = set()
-        self.watchers = []
+        self._handler = handler
+        self._sampling_interval = sampling_interval
+        self._images = images
+        self._board = board
+        self._thread_list_url = 'http://a.4cdn.org/%s/threads.json' % self._board
+        self._loop = ioloop.IOLoop.instance()
+        self._client = httpclient.AsyncHTTPClient()
+        self._previous_threads = set()
+        self._watchers = []
 
     def _handle_threads(self, response):
-        self.watchers = filter(attrgetter('working'), self.watchers)
+        self._watchers = filter(attrgetter('working'), self._watchers)
 
         if response.code == 200:
             try:
@@ -224,21 +224,21 @@ class ChanWatcher(object):
                         curr_threads.add(thread_nr)
                         # last_modified = thread_obj['last_modified']
 
-                new_threads = curr_threads - self.previous_threads
-                self.previous_threads = curr_threads
+                new_threads = curr_threads - self._previous_threads
+                self._previous_threads = curr_threads
                 for t in new_threads:
-                    watcher = ThreadWatcher(self.handler, self.board, self.loop, t, self.images)
-                    self.watchers.append(watcher)
+                    watcher = ThreadWatcher(self._handler, self._board, self._loop, t, self._images)
+                    self._watchers.append(watcher)
                     watcher.watch()
             except ValueError:
                 logger.info('Failed to parse thread list JSON response')
 
-        self.loop.add_timeout(timedelta(seconds=self.sampling_interval), self._watch_threads)
+        self._loop.add_timeout(timedelta(seconds=self._sampling_interval), self._watch_threads)
 
     def _watch_threads(self):
-        self.client.fetch(self.thread_list_url, self._handle_threads)
+        self._client.fetch(self._thread_list_url, self._handle_threads)
 
     def start(self):
         """Starts watching the board this watcher is bound to."""
         self._watch_threads()
-        self.loop.start()
+        self._loop.start()
