@@ -154,13 +154,14 @@ class ThreadWatcher(object):
         self._sampling_interval = sampling_interval
         self._pull_images = pull_images
         self._client = httpclient.AsyncHTTPClient()
-        self._working = True
         self._thread_id = thread_id
         self._url = 'http://a.4cdn.org/{board}/thread/{thread_id}.json'.format(board=board, thread_id=thread_id)
         self._downloaded_pictures = set()
         self._last_modified = datetime.now()
         self._pic_url = 'http://i.4cdn.org/{board}/{{pic_filename}}'.format(board=board)
         self._posts_handled = set()
+
+        self.working = True
 
     def _make_image_handler(self, filename, checksum):
         def check_image(response):
@@ -209,7 +210,7 @@ class ThreadWatcher(object):
             self._loop.add_timeout(timedelta(seconds=self._sampling_interval), self.watch)
         else:
             self._handler.pruned(self._thread_id)
-            self._working = False
+            self.working = False
 
     def watch(self):
         """Starts watching the thread this watcher is bound to."""
