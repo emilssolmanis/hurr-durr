@@ -2,6 +2,7 @@
 from argparse import ArgumentParser
 import logging
 
+import hurr_durr
 from hurr_durr import ChanWatcher, FileHandler
 
 
@@ -12,6 +13,8 @@ def main():
     parser.add_argument('-b', '--board', type=str, required=True, help='the board to scrape')
     parser.add_argument('-i', '--images', action='store_true', help='if given, images will be downloaded as well')
     parser.add_argument('-v', '--verbose', action='store_true', help='output info about stuff going on')
+    parser.add_argument('-V', '--version', action='version', help='output the version number and exit',
+                        version=hurr_durr.__version__)
     args = parser.parse_args()
 
     if args.verbose:

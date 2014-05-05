@@ -17,6 +17,7 @@ from tornado import ioloop
 logger = logging.getLogger(__name__)
 
 __all__ = ['FileHandler', 'ChanWatcher']
+__version__ = '0.1.0'
 
 
 class FileHandler(object):
