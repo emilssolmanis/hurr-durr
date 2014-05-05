@@ -1,6 +1,7 @@
 from base64 import b64decode
 from binascii import hexlify
 from datetime import datetime, timedelta
+import time
 from email.utils import parsedate as parse_last_modified
 import errno
 from json import loads, dumps
@@ -40,7 +41,24 @@ class FileHandler(object):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise e
+
         self._active_threads = dict()
+        self._thread_roots = dict()
+
+    @staticmethod
+    def _get_date_string():
+        return time.strftime('%Y%m%d')
+
+    def _get_thread_root(self, thread_id):
+        if thread_id not in self._thread_roots:
+            return '{file_root}{sep}{date}{sep}{thread_id}'.format(
+                file_root=self._file_root,
+                thread_id=thread_id,
+                date=self._get_date_string(),
+                sep=sep
+            )
+        else:
+            return self._thread_roots[thread_id]
 
     def post(self, thread_id, new_post):
         """Handle a new post.
@@ -54,13 +72,14 @@ class FileHandler(object):
             com : the text, contains escaped HTML
         """
         if thread_id not in self._active_threads:
-            thread_file_root = '%s%s%s' % (self._file_root, sep, thread_id)
+            thread_file_root = self._get_thread_root(thread_id)
             try:
                 makedirs(thread_file_root)
             except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise e
             self._active_threads[thread_id] = []
+            self._thread_roots[thread_id] = thread_file_root
         self._active_threads[thread_id].append(new_post)
 
     def pruned(self, thread_id):
@@ -71,9 +90,15 @@ class FileHandler(object):
         # this is necessary for the edge-case when the thread was pruned between seeing it in the main list and fetching
         # it's content json
         if thread_id in self._active_threads:
-            with open('%s%s%s%s%s.json' % (self._file_root, sep, thread_id, sep, thread_id), 'w') as f:
+            filename = '{thread_root}{sep}{thread_id}.json'.format(
+                thread_root=self._get_thread_root(thread_id),
+                thread_id=thread_id,
+                sep=sep
+            )
+            with open(filename, 'w') as f:
                 f.write(dumps({'posts': self._active_threads[thread_id]}))
             del self._active_threads[thread_id]
+            del self._thread_roots[thread_id]
 
     def img(self, thread_id, filename, data):
         """Handles image downloads, writes content to disk in thread_id directory.
@@ -82,7 +107,12 @@ class FileHandler(object):
         filename -- the image's filename with extensions
         data -- bytes, image content
         """
-        with open('%s%s%s%s%s' % (self._file_root, sep, thread_id, sep, filename), 'w') as f:
+        full_filename = '{thread_root}{sep}{img_filename}'.format(
+            thread_root=self._get_thread_root(thread_id),
+            img_filename=filename,
+            sep=sep
+        )
+        with open(full_filename, 'w') as f:
             f.write(data)
 
     def download_img(self, thread_id, filename):
@@ -93,7 +123,12 @@ class FileHandler(object):
         thread_id -- the thread ID for thread containing the image
         filename -- the image's file name
         """
-        return exists('%s%s%s%s%s' % (self._file_root, sep, thread_id, sep, filename))
+        return exists('{file_root}{sep}{thread_id}{sep}{filename}'.format(
+            file_root=self._file_root,
+            thread_id=thread_id,
+            filename=filename,
+            sep=sep
+        ))
 
 
 class ThreadWatcher(object):
@@ -120,10 +155,10 @@ class ThreadWatcher(object):
         self._client = httpclient.AsyncHTTPClient()
         self._working = True
         self._thread_id = thread_id
-        self._url = 'http://a.4cdn.org/%s/res/%d.json' % (board, thread_id)
+        self._url = 'http://a.4cdn.org/{board}/thread/{thread_id}.json'.format(board=board, thread_id=thread_id)
         self._downloaded_pictures = set()
         self._last_modified = datetime.now()
-        self._pic_url = 'http://i.4cdn.org/%s/src/%%s' % board
+        self._pic_url = 'http://i.4cdn.org/{board}/{{pic_filename}}'.format(board=board)
         self._posts_handled = set()
 
     def _make_image_handler(self, filename, checksum):
@@ -146,10 +181,10 @@ class ThreadWatcher(object):
             self._handler.post(self._thread_id, p)
             self._posts_handled.add(p['no'])
             if self._pull_images and 'tim' in p:
-                filename = '%s%s' % (p['tim'], p['ext'])
+                filename = '{filename}{extension}'.format(filename=p['tim'], extension=p['ext'])
                 if filename not in self._downloaded_pictures:
                     checksum = hexlify(b64decode(p['md5']))
-                    remote_name = self._pic_url % filename
+                    remote_name = self._pic_url.format(pic_filename=filename)
                     if not self._handler.download_img(self._thread_id, filename):
                         logger.info('Pulling image %s', filename)
                         self._client.fetch(remote_name, self._make_image_handler(filename, checksum))
@@ -203,7 +238,7 @@ class ChanWatcher(object):
         self._sampling_interval = sampling_interval
         self._images = images
         self._board = board
-        self._thread_list_url = 'http://a.4cdn.org/%s/threads.json' % self._board
+        self._thread_list_url = 'http://a.4cdn.org/{board}/threads.json'.format(board=self._board)
         self._loop = ioloop.IOLoop.instance()
         self._client = httpclient.AsyncHTTPClient()
         self._previous_threads = set()
