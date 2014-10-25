@@ -20,7 +20,7 @@ setup(
     long_description=open(readme_pth).read(),
 
     packages=find_packages(),
-    scripts=['hurr-durr'],
+    scripts=['hurr-durr', 'hurr-durr-convert-file-to-sqlite'],
     zip_safe=True,
 
     install_requires=['tornado==4.0.2']

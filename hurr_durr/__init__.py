@@ -20,7 +20,7 @@ from tornado import ioloop
 logger = logging.getLogger(__name__)
 
 __all__ = ['FileHandler', 'SQLiteHandler', 'ChanWatcher']
-__version__ = '0.1.1'
+__version__ = '0.2.0'
 
 
 _POSTS_CREATE_TABLE = '''CREATE TABLE IF NOT EXISTS posts(
@@ -117,20 +117,9 @@ class Handler(object):
         raise NotImplementedError('Implement download_img(thread_id, filename) in subclass')
 
 
-class RotatingSQLitePostPersister(object):
-    def __init__(self, root_dir):
-        if root_dir.endswith(sep):
-            root_dir = root_dir[:len(sep)]
-
-        try:
-            makedirs(root_dir)
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-
-        self.curr_date_str = _get_date_string()
-        self.root_dir = root_dir
-        self.connection = sqlite3.connect(self._make_db_path())
+class SQLitePersister(object):
+    def __init__(self, db_path):
+        self.connection = sqlite3.connect(db_path)
         self.cursor = self.connection.cursor()
         self._init_db()
 
@@ -138,22 +127,9 @@ class RotatingSQLitePostPersister(object):
         self.cursor.execute(_POSTS_CREATE_TABLE)
         self.connection.commit()
 
-    def _make_db_path(self):
-        return '{root}{sep}{date_str}.db'.format(root=self.root_dir, sep=sep, date_str=self.curr_date_str)
-
-    def _rotate_db_if_new_day(self):
-        date_str = _get_date_string()
-        if self.curr_date_str != date_str:
-            self.curr_date_str = date_str
-            self.connection.commit()
-            self.connection.close()
-            self.connection = sqlite3.connect(self._make_db_path())
-            self.cursor = self.connection.cursor()
-            self._init_db()
-
-    def persist_post(self, post):
-        self._rotate_db_if_new_day()
-        data = (
+    @staticmethod
+    def _post_to_data_tuple(post):
+        return (
             post.get('no'),
             post.get('resto'),
             post.get('sticky'),
@@ -192,13 +168,61 @@ class RotatingSQLitePostPersister(object):
             post.get('tag'),
             post.get('semantic_url'),
         )
+
+    def persist(self, posts):
+        _posts = None
+        if isinstance(posts, dict):
+            _posts = [posts]
+        else:
+            try:
+                _ = iter(posts)
+            except TypeError:
+                _posts = [posts]
+            else:
+                _posts = posts
+
+        data = map(self._post_to_data_tuple, _posts)
         try:
-            self.cursor.execute(_POSTS_INSERT, data)
+            self.cursor.executemany(_POSTS_INSERT, data)
             self.connection.commit()
         except sqlite3.IntegrityError:
             pass
         except sqlite3.Error:
             logger.exception('SQLite error')
+
+    def close(self):
+        self.connection.commit()
+        self.connection.close()
+
+
+class RotatingSQLitePostPersister(object):
+    def __init__(self, root_dir):
+        if root_dir.endswith(sep):
+            root_dir = root_dir[:len(sep)]
+
+        try:
+            makedirs(root_dir)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+        self.curr_date_str = _get_date_string()
+        self.root_dir = root_dir
+        self.db = SQLitePersister(self._make_db_path())
+
+    def _make_db_path(self):
+        return '{root}{sep}{date_str}.db'.format(root=self.root_dir, sep=sep, date_str=self.curr_date_str)
+
+    def _rotate_db_if_new_day(self):
+        date_str = _get_date_string()
+        if self.curr_date_str != date_str:
+            self.curr_date_str = date_str
+            self.db.close()
+            self.db = SQLitePersister(self._make_db_path())
+
+    def persist_post(self, post):
+        self._rotate_db_if_new_day()
+        self.db.persist(post)
 
 
 class SQLiteHandler(Handler):

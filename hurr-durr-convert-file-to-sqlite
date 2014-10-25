@@ -1,0 +1,55 @@
+#!/usr/bin/env python2
+from argparse import ArgumentParser
+import json
+import logging
+import errno
+import hurr_durr
+from os import listdir, makedirs, sep
+
+
+def _handle_date_dir(input_root, output_root, date_dir):
+    persister = hurr_durr.SQLitePersister('{}{}{}.db'.format(output_root, sep, date_dir))
+    thread_dirs = sorted(listdir('{}{}{}'.format(input_root, sep, date_dir)))
+    for i, thread_dir in enumerate(thread_dirs):
+        thread = json.load(
+            file('{}{}{}{}{}{}{}.json'.format(input_root, sep, date_dir, sep, thread_dir, sep, thread_dir)))
+        posts = thread['posts']
+        persister.persist(posts)
+        logging.info('Done with %s, %.2f%% of threads for %s',
+                     thread_dir, (float(i + 1) / float(len(thread_dirs))) * 100, date_dir)
+    persister.close()
+
+
+def main():
+    parser = ArgumentParser(description="Convert hurr-durr's old FS output format into new SQLite")
+    parser.add_argument('-i', '--input', type=str, required=True,
+                        help='the root directory of the old format storage files')
+    parser.add_argument('-o', '--output', type=str, required=True,
+                        help='the root directory for the new format output')
+    parser.add_argument('-v', '--verbose', action='store_true', help='output info about stuff going on')
+    parser.add_argument('-V', '--version', action='version', help='output the version number and exit',
+                        version=hurr_durr.__version__)
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(format='%(asctime)-15s %(levelname)s %(message)s', level=logging.INFO)
+
+    if args.input.endswith(sep):
+        args.input = args.input[:len(sep)]
+
+    if args.output.endswith(sep):
+        args.output = args.output[:len(sep)]
+
+    try:
+        makedirs(args.output)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+
+    date_dirs = sorted(listdir(args.input))
+    for i, date_dir in enumerate(date_dirs):
+        _handle_date_dir(args.input, args.output, date_dir)
+        logging.info('Done with %s, %.2f%% of dates', date_dir, (float(i + 1) / float(len(date_dirs))) * 100)
+
+if __name__ == '__main__':
+    main()
