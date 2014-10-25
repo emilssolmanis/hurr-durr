@@ -1,3 +1,4 @@
+from abc import ABCMeta, abstractmethod
 from base64 import b64decode
 from binascii import hexlify
 from datetime import datetime, timedelta
@@ -20,7 +21,54 @@ __all__ = ['FileHandler', 'ChanWatcher']
 __version__ = '0.1.1'
 
 
-class FileHandler(object):
+class Handler(object):
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def post(self, thread_id, new_post):
+        """Handle a new post.
+
+        thread_id -- the thread's ID
+        new_post -- the new post dict that has just arrived. Check 4chan API (https://github.com/4chan/4chan-API)
+            for full possible contents, but most notable keys are
+            no : post number
+            resto : number of post that this post is a response to
+            time : a UNIX timestamp of post's time
+            com : the text, contains escaped HTML
+        """
+        raise NotImplementedError('Implement post(thread_id, new_post) in subclass')
+
+    @abstractmethod
+    def pruned(self, thread_id):
+        """Handles thread pruning.
+
+        thread_id -- the thread ID that was pruned from 4chan
+        """
+        raise NotImplementedError('Implement pruned(thread_id) in subclass')
+
+    @abstractmethod
+    def img(self, thread_id, filename, data):
+        """Handles image downloads.
+
+        thread_id -- ID of thread in which image was posted
+        filename -- the image's filename with extensions
+        data -- bytes, image content
+        """
+        raise NotImplementedError('Implement img(thread_id, filename, data) in subclass')
+
+    @abstractmethod
+    def download_img(self, thread_id, filename):
+        """Checks whether the image needs to be downloaded.
+
+        Needed to avoid downloading the same image multiple times. Prime use-case is resumed operation.
+
+        thread_id -- the thread ID for thread containing the image
+        filename -- the image's file name
+        """
+        raise NotImplementedError('Implement download_img(thread_id, filename) in subclass')
+
+
+class FileHandler(Handler):
     """ Handler that writes things to the file system.
 
     Threads are purged to disk when they get pruned from 4chan and held in-memory before they are.
@@ -62,16 +110,6 @@ class FileHandler(object):
             return self._thread_roots[thread_id]
 
     def post(self, thread_id, new_post):
-        """Handle a new post.
-
-        thread_id -- the thread's ID
-        new_post -- the new post dict that has just arrived. Check 4chan API (https://github.com/4chan/4chan-API)
-            for full possible contents, but most notable keys are
-            no : post number
-            resto : number of post that this post is a response to
-            time : a UNIX timestamp of post's time
-            com : the text, contains escaped HTML
-        """
         if thread_id not in self._active_threads:
             thread_file_root = self._get_thread_root(thread_id)
             try:
@@ -124,7 +162,7 @@ class FileHandler(object):
         thread_id -- the thread ID for thread containing the image
         filename -- the image's file name
         """
-        return exists('{file_root}{sep}{thread_id}{sep}{filename}'.format(
+        return not exists('{file_root}{sep}{thread_id}{sep}{filename}'.format(
             file_root=self._file_root,
             thread_id=thread_id,
             filename=filename,
@@ -187,7 +225,7 @@ class ThreadWatcher(object):
                 if filename not in self._downloaded_pictures:
                     checksum = hexlify(b64decode(p['md5']))
                     remote_name = self._pic_url.format(pic_filename=filename)
-                    if not self._handler.download_img(self._thread_id, filename):
+                    if self._handler.download_img(self._thread_id, filename):
                         logger.info('Pulling image %s', filename)
                         self._client.fetch(remote_name, self._make_image_handler(filename, checksum))
 

@@ -23,7 +23,7 @@ watcher.start()
 ```
 
 The only handler currently bundled is a `FileHandler` which saves content to disk. To implement your own handler,
-you need to create a class containing 4 methods:
+you need to create a class inheriting from `Handler`, containing 4 methods:
 
  * `post(thread_id, new_post)` -- gets called when a new post is made in a thread
  * `pruned(thread_id)` -- gets called when a thread is pruned from 4chan
