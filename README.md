@@ -1,16 +1,24 @@
 # What is this?
 
 A streaming async API to 4chan boards. You create a handler class, implement some callbacks and get informed when new
-posts and images arrive in threads. There's a bundled `FileHandler` that saves content to the file system.
+posts and images arrive in threads. There's a bundled `FileHandler` that saves content to the file system and a
+`SQLiteHandler` that saves posts in per-date SQLite DBs.
+
+**NOTE**: the `FileHandler` will eat up your `inode`s, a default Debian install scraping */b/* got exhausted in ~ 6
+months. Use the `SQLiteHandler` unless you plan to clean the file root regularly.
 
 # How?
 
 The bundled executable called `hurr-durr` is a scraper. You use it as
 
-    hurr-durr --directory /tmp/4chan --board b
+    hurr-durr --directory /tmp/4chan/sqlite-files --board b
 
-There's an optional `-i` flag to also download the images and a `-v` flag to see logging information. All this is also
-available via the `-h` flag.
+There's an optional `-i` flag to also download the images and a `-v` flag to see logging information.
+
+Storage defaults to SQLite DB per day, unless overridden via `-f file`, which produces 1 JSON file per thread in a 
+structure of `data_dir/YYYYmmdd/threadID/threadID.json`.
+
+All this info is also available via the `-h` flag.
 
 As for the API part, the main entry point is `hurr_durr.ChanWatcher`. You have to implement a handler class and then
 do something along the lines of
@@ -22,8 +30,18 @@ watcher = ChanWatcher(FileHandler('/tmp/4chan/b'), 'b', images=True)
 watcher.start()
 ```
 
-The only handler currently bundled is a `FileHandler` which saves content to disk. To implement your own handler,
-you need to create a class inheriting from `Handler`, containing 4 methods:
+or
+
+```python
+from hurr_durr import SQLiteHandler, ChanWatcher
+
+watcher = ChanWatcher(SQLiteHandler('/tmp/4chan/b'), 'b')
+watcher.start()
+```
+
+The handlers currently bundled are `FileHandler` which saves content to disk in files and `SQLiteHandler`, which saves
+posts in SQLite DBs. To implement your own handler, you need to create a class inheriting from `Handler`, 
+containing 4 methods:
 
  * `post(thread_id, new_post)` -- gets called when a new post is made in a thread
  * `pruned(thread_id)` -- gets called when a thread is pruned from 4chan

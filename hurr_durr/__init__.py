@@ -20,7 +20,7 @@ from tornado import ioloop
 logger = logging.getLogger(__name__)
 
 __all__ = ['FileHandler', 'SQLiteHandler', 'ChanWatcher']
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 
 
 _POSTS_CREATE_TABLE = '''CREATE TABLE IF NOT EXISTS posts(

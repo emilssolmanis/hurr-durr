@@ -1,3 +1,6 @@
+# 0.2.1
+ * README update for new SQLite handler
+
 # 0.2.0
 ## Breaking
  * Changed storage format to per-date SQLites. Turns out the previous FS one exhausts `inodes` on default installs
