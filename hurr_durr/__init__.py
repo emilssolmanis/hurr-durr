@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod
+import sqlite3
 from base64 import b64decode
 from binascii import hexlify
 from datetime import datetime, timedelta
@@ -10,15 +10,64 @@ from operator import attrgetter
 from hashlib import md5
 import logging
 
+from abc import ABCMeta, abstractmethod
 from genericpath import exists
 from os import makedirs, sep
 from tornado import httpclient
 from tornado import ioloop
 
+
 logger = logging.getLogger(__name__)
 
-__all__ = ['FileHandler', 'ChanWatcher']
+__all__ = ['FileHandler', 'SQLiteHandler', 'ChanWatcher']
 __version__ = '0.1.1'
+
+
+_POSTS_CREATE_TABLE = '''CREATE TABLE IF NOT EXISTS posts(
+          no INTEGER PRIMARY KEY,
+          resto INTEGER,
+          sticky INTEGER,
+          closed INTEGER,
+          archived INTEGER,
+          now TEXT,
+          time INTEGER,
+          name TEXT,
+          trip TEXT,
+          id TEXT,
+          capcode TEXT,
+          country TEXT,
+          country_name TEXT,
+          sub TEXT,
+          com TEXT,
+          tim INTEGER,
+          filename TEXT,
+          ext TEXT,
+          fsize INTEGER,
+          md5 TEXT,
+          w INTEGER,
+          h INTEGER,
+          tn_w INTEGER,
+          tn_h INTEGER,
+          filedeleted INTEGER,
+          spoiler INTEGER,
+          custom_spoiler INTEGER,
+          omitted_posts INTEGER,
+          omitted_images INTEGER,
+          replies INTEGER,
+          images INTEGER,
+          bumplimit INTEGER,
+          imagelimit INTEGER,
+          capcode_replies TEXT,
+          last_modified INTEGER,
+          tag TEXT,
+          semantic_url TEXT
+        );'''
+
+_POSTS_INSERT = 'INSERT INTO posts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+
+
+def _get_date_string():
+    return time.strftime('%Y%m%d')
 
 
 class Handler(object):
@@ -68,8 +117,113 @@ class Handler(object):
         raise NotImplementedError('Implement download_img(thread_id, filename) in subclass')
 
 
+class RotatingSQLitePostPersister(object):
+    def __init__(self, root_dir):
+        if root_dir.endswith(sep):
+            root_dir = root_dir[:len(sep)]
+
+        try:
+            makedirs(root_dir)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+        self.curr_date_str = _get_date_string()
+        self.root_dir = root_dir
+        self.connection = sqlite3.connect(self._make_db_path())
+        self.cursor = self.connection.cursor()
+        self._init_db()
+
+    def _init_db(self):
+        self.cursor.execute(_POSTS_CREATE_TABLE)
+        self.connection.commit()
+
+    def _make_db_path(self):
+        return '{root}{sep}{date_str}.db'.format(root=self.root_dir, sep=sep, date_str=self.curr_date_str)
+
+    def _rotate_db_if_new_day(self):
+        date_str = _get_date_string()
+        if self.curr_date_str != date_str:
+            self.curr_date_str = date_str
+            self.connection.commit()
+            self.connection.close()
+            self.connection = sqlite3.connect(self._make_db_path())
+            self.cursor = self.connection.cursor()
+            self._init_db()
+
+    def persist_post(self, post):
+        self._rotate_db_if_new_day()
+        data = (
+            post.get('no'),
+            post.get('resto'),
+            post.get('sticky'),
+            post.get('closed'),
+            post.get('archived'),
+            post.get('now'),
+            post.get('time'),
+            post.get('name'),
+            post.get('trip'),
+            post.get('id'),
+            post.get('capcode'),
+            post.get('country'),
+            post.get('country_name'),
+            post.get('sub'),
+            post.get('com'),
+            post.get('tim'),
+            post.get('filename'),
+            post.get('ext'),
+            post.get('fsize'),
+            post.get('md5'),
+            post.get('w'),
+            post.get('h'),
+            post.get('tn_w'),
+            post.get('tn_h'),
+            post.get('filedeleted'),
+            post.get('spoiler'),
+            post.get('custom_spoiler'),
+            post.get('omitted_posts'),
+            post.get('omitted_images'),
+            post.get('replies'),
+            post.get('images'),
+            post.get('bumplimit'),
+            post.get('imagelimit'),
+            dumps(post['capcode_replies']) if post.get('capcode_replies') else None,
+            post.get('last_modified'),
+            post.get('tag'),
+            post.get('semantic_url'),
+        )
+        try:
+            self.cursor.execute(_POSTS_INSERT, data)
+            self.connection.commit()
+        except sqlite3.IntegrityError:
+            pass
+        except sqlite3.Error:
+            logger.exception('SQLite error')
+
+
+class SQLiteHandler(Handler):
+    """Handler that writes posts to an SQLite DB. Doesn't handle images.
+
+    Posts are persisted as they come in.
+    """
+    def __init__(self, root_dir):
+        self.persister = RotatingSQLitePostPersister(root_dir)
+
+    def pruned(self, thread_id):
+        pass
+
+    def post(self, thread_id, new_post):
+        self.persister.persist_post(new_post)
+
+    def download_img(self, thread_id, filename):
+        raise TypeError('SQLiteHandler does not support images')
+
+    def img(self, thread_id, filename, data):
+        raise TypeError('SQLiteHandler does not support images')
+
+
 class FileHandler(Handler):
-    """ Handler that writes things to the file system.
+    """Handler that writes things to the file system.
 
     Threads are purged to disk when they get pruned from 4chan and held in-memory before they are.
 
@@ -94,16 +248,12 @@ class FileHandler(Handler):
         self._active_threads = dict()
         self._thread_roots = dict()
 
-    @staticmethod
-    def _get_date_string():
-        return time.strftime('%Y%m%d')
-
     def _get_thread_root(self, thread_id):
         if thread_id not in self._thread_roots:
             return '{file_root}{sep}{date}{sep}{thread_id}'.format(
                 file_root=self._file_root,
                 thread_id=thread_id,
-                date=self._get_date_string(),
+                date=_get_date_string(),
                 sep=sep
             )
         else:
