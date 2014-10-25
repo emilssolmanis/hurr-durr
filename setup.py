@@ -23,5 +23,5 @@ setup(
     scripts=['hurr-durr'],
     zip_safe=True,
 
-    install_requires=['tornado==3.2']
+    install_requires=['tornado==4.0.2']
 )
