@@ -1,3 +1,6 @@
+# 0.2.2
+ * Add file name, line number and func name to logging format
+
 # 0.2.1
  * README update for new SQLite handler
 
