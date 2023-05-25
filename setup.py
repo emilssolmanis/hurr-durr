@@ -23,5 +23,5 @@ setup(
     scripts=['hurr-durr', 'hurr-durr-convert-file-to-sqlite'],
     zip_safe=True,
 
-    install_requires=['tornado==4.0.2']
+    install_requires=['tornado==6.3.2']
 )
